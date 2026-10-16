@@ -11,7 +11,6 @@ import time
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlparse
 
 import requests
 from PIL import Image, ImageOps
@@ -56,7 +55,7 @@ def load_manifest() -> list[dict]:
 
 
 def current_image_bytes() -> int:
-    return sum(p.stat().st_size for p in WALLPAPER_DIR.glob("image_*.jpg") if p.is_file())
+    return sum(p.stat().st_size for p in WALLPAPER_DIR.rglob("*") if p.is_file())
 
 
 def next_image_number() -> int:
@@ -83,9 +82,10 @@ def license_info(info: dict) -> tuple[str, str, str] | None:
     if re.search(r"\bcc0\b", combined):
         return short or "CC0", author, terms
     if "public domain" in combined:
-        # Exclude CC BY/SA/NC/ND labels even if a metadata field also mentions
-        # public-domain material in a description.
-        if any(token in combined for token in ("creative commons", "cc-by", "cc by", "noncommercial", "non-commercial", "no derivatives")):
+        if any(token in combined for token in (
+            "creative commons", "cc-by", "cc by", "noncommercial",
+            "non-commercial", "no derivatives"
+        )):
             return None
         return short or "Public Domain", author, terms
     return None
@@ -113,12 +113,14 @@ def download_candidate(
     page: dict,
     category: str,
     known_ids: set[str],
+    known_titles: set[str],
     known_hashes: set[str],
     manifest: list[dict],
     number: int,
 ) -> bool:
     page_id = str(page.get("pageid", ""))
-    if not page_id or page_id in known_ids:
+    page_title = page.get("title", "")
+    if not page_id or page_id in known_ids or page_title in known_titles:
         return False
     infos = page.get("imageinfo", [])
     if not infos:
@@ -155,21 +157,20 @@ def download_candidate(
                 return False
             if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
                 rgba = image.convert("RGBA")
-                background = Image.new("RGB", rgba.size, "black")
-                background.paste(rgba, mask=rgba.getchannel("A"))
-                image = background
+                image = Image.new("RGB", rgba.size, "black")
+                image.paste(rgba, mask=rgba.getchannel("A"))
             else:
                 image = image.convert("RGB")
             image.save(target, format="JPEG", quality=92, optimize=True, progressive=True)
-        output_bytes = target.stat().st_size
-        if output_bytes > MAX_FILE_BYTES:
+        if target.stat().st_size > MAX_FILE_BYTES:
             target.unlink(missing_ok=True)
             return False
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         if digest in known_hashes:
             target.unlink(missing_ok=True)
             known_ids.add(page_id)
-            print(f"Skipped duplicate image content: {page.get('title')}")
+            known_titles.add(page_title)
+            print(f"Skipped duplicate image content: {page_title}")
             return False
         if current_image_bytes() > MAX_REPO_IMAGE_BYTES:
             target.unlink(missing_ok=True)
@@ -180,15 +181,16 @@ def download_candidate(
         raise
     except Exception as exc:
         target.unlink(missing_ok=True)
-        print(f"Skipped {page.get('title')}: {exc}")
+        print(f"Skipped {page_title}: {exc}")
         return False
 
     extmeta = info.get("extmetadata", {})
     description = clean_metadata(extmeta.get("ImageDescription", {}).get("value", ""))
     manifest.append({
         "file": str(target.relative_to(ROOT)),
+        "page_id": page_id,
         "category": category,
-        "commons_title": page.get("title", ""),
+        "commons_title": page_title,
         "commons_page_url": info.get("descriptionurl", ""),
         "original_url": original_url,
         "author": author,
@@ -201,6 +203,7 @@ def download_candidate(
         "downloaded_at": datetime.now(timezone.utc).isoformat(),
     })
     known_ids.add(page_id)
+    known_titles.add(page_title)
     known_hashes.add(digest)
     print(f"Added {target.relative_to(ROOT)} ({actual_width}x{actual_height}; {license_name})")
     return True
@@ -209,18 +212,11 @@ def download_candidate(
 def main() -> None:
     WALLPAPER_DIR.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest()
-    known_ids = set()
-    for item in manifest:
-        url = item.get("commons_page_url", "")
-        match = re.search(r"[?&]curid=(\d+)", url)
-        if match:
-            known_ids.add(match.group(1))
-    known_hashes = {
-        item.get("sha256") for item in manifest if item.get("sha256")
-    }
-    # Also recognize numbered files already present, including files not in manifest.
-    for path in WALLPAPER_DIR.glob("image_*.jpg"):
-        if path.is_file():
+    known_ids = {str(item.get("page_id")) for item in manifest if item.get("page_id")}
+    known_titles = {item.get("commons_title", "") for item in manifest if item.get("commons_title")}
+    known_hashes = {item.get("sha256") for item in manifest if item.get("sha256")}
+    for path in WALLPAPER_DIR.rglob("*"):
+        if path.is_file() and path.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
             try:
                 known_hashes.add(hashlib.sha256(path.read_bytes()).hexdigest())
             except OSError:
@@ -243,7 +239,8 @@ def main() -> None:
                 break
             try:
                 success = download_candidate(
-                    page, category, known_ids, known_hashes, manifest, number
+                    page, category, known_ids, known_titles, known_hashes,
+                    manifest, number
                 )
                 if success:
                     added += 1
