@@ -15,7 +15,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -35,8 +35,8 @@ jobs:
       - name: Discover and download eligible wallpapers
         run: python scripts/collect_wallpapers.py
         env:
-          MAX_NEW_PER_RUN: "10"
-          PER_CATEGORY: "1"
+          MAX_NEW_PER_RUN: "100"
+          PER_CATEGORY: "10"
           MIN_LONG_EDGE: "3840"
           MIN_SHORT_EDGE: "2160"
           MAX_FILE_BYTES: "15728640"
@@ -46,9 +46,9 @@ jobs:
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config user.email "41898282+users.noreply.github.com"
             git add wallpapers manifest.json
-            git diff --cached --quiet || git commit -m "Add new open-license 4K wallpapers"
+            git diff --cached --quiet || git commit -m "Add sequential Public Domain and CC0 wallpapers"
             git push
           else
             echo "No eligible new wallpapers found."
