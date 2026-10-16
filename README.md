@@ -2,28 +2,36 @@
 
 A daily-updated collection of high-resolution wallpapers sourced from Wikimedia Commons.
 
-## Categories
+## File naming and batches
 
-Nature, Space, Dark AMOLED, Cars, Abstract, Anime, Minimalist, Mountains, Ocean, and Architecture.
+Images are stored together in `wallpapers/` with sequential names:
 
-## Automation
+```
+wallpapers/
+  image_1.jpg
+  image_2.jpg
+  image_3.jpg
+  ...
+  image_100.jpg
+```
 
-GitHub Actions runs daily and can also be started manually from **Actions → Collect 4K wallpapers → Run workflow**. The collector:
+The first successful run downloads up to 100 images. Later runs continue at the next unused number (for example, `image_101.jpg`) and never intentionally overwrite an existing numbered file. The workflow is scheduled daily and can also be started manually from **Actions → Collect 4K wallpapers → Run workflow**.
 
-- Searches Wikimedia Commons, not arbitrary websites.
-- Accepts only files whose metadata indicates Public Domain, CC0, CC BY, or CC BY-SA licensing; excludes non-commercial and no-derivatives licenses.
-- Requires both dimensions to be at least 2160 px and the long edge to be at least 3840 px.
-- Verifies actual image dimensions and file integrity, limits each file to 15 MiB, and skips known Commons file IDs.
-- Adds up to 10 images per run, at most one per category.
-- Records source page, creator, license, dimensions, and SHA-256 in [manifest.json](manifest.json).
+## Copyright and reuse filter
 
-A category may receive no image on a given day if no candidate passes all checks. Licensing metadata should always be reviewed before reuse; the manifest provides source links and attribution details.
+The collector accepts only Wikimedia Commons files whose license metadata explicitly identifies **Public Domain** or **CC0**. It rejects Creative Commons Attribution (CC BY), ShareAlike, NonCommercial, NoDerivatives, and other licenses. This is a conservative filter, but automated metadata is not a legal guarantee: check the original file page before using an image commercially or redistributing it.
+
+## Image quality and duplicate prevention
+
+- Requires at least 3840 px on the long edge and 2160 px on the short edge.
+- Validates image data and actual dimensions, converts accepted files to JPEG, and limits each output file to 15 MiB.
+- Skips previously recorded source files and exact duplicate JPEG content.
+- Saves source URL, creator metadata when supplied, license, dimensions, SHA-256, and download date in [manifest.json](manifest.json).
+- Searches Nature, Space, Dark AMOLED, Cars, Abstract, Anime, Minimalist, Mountains, Ocean, and Architecture.
 
 ## Repository storage
 
-The workflow stops adding files once the current wallpaper directory exceeds 300 MiB. This is a safety ceiling, not a GitHub quota. Git stores every committed version of binary files, so deleting a wallpaper later does not remove its historical copy. For a large or long-lived collection, use Git LFS or external object storage/CDN instead of keeping all original images in Git history.
-
-GitHub Actions requires write access to repository contents. Scheduled workflows can be delayed during high load and may not run in a disabled/inactive repository.
+The workflow has a 300 MiB wallpaper storage ceiling. A run may therefore download fewer than 100 images if the remaining space is insufficient. Git keeps old binary files in commit history, even if later deleted; for a large archive, use Git LFS or external object storage/CDN rather than storing thousands of full-resolution images in ordinary Git history.
 
 ## Run locally
 
@@ -32,6 +40,4 @@ python -m pip install -r requirements.txt
 python scripts/collect_wallpapers.py
 ```
 
-## License and attribution
-
-This repository's automation code is separate from the wallpapers. Each image retains the license and attribution information recorded in `manifest.json`; follow the license terms on the original Commons file page. Do not assume all images share one license.
+The repository automation code is separate from the images. Each image's source and reported license are recorded in `manifest.json`.
